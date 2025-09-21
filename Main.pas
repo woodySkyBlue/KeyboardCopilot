@@ -5,18 +5,29 @@ interface
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
-  PsAPI, UnitKeyboardCopilot;
+  PsAPI, UnitKeyboardCopilot, Vcl.Menus, Vcl.ExtCtrls, Vcl.AppEvnts;
 
 type
   TFormMain = class(TForm)
+    ApplicationEvents: TApplicationEvents;
+    TrayIcon: TTrayIcon;
+    PopupMenu: TPopupMenu;
+    MenuItemShowForm: TMenuItem;
+    MenuItemCloseForm: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure ApplicationEventsMinimize(Sender: TObject);
+    procedure MenuItemShowFormClick(Sender: TObject);
+    procedure MenuItemCloseFormClick(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
   private
     FApplicationManager: TApplicationManager;
+    FIsClose: Boolean;
     function GetForgroundApplication: TApplicationInfo;
     function GetGetModifierSet: TModifierSet;
   public
-    { Public 宣言 }
+    procedure ProcTrayIconMessage(S: string);
+    procedure CreateParams(var Params: TCreateParams); override;
   end;
 
 var
@@ -69,6 +80,13 @@ end;
 procedure TFormMain.FormCreate(Sender: TObject);
 begin
   ReportMemoryLeaksOnShutdown := True;
+  FormMain.BorderIcons := [TBorderIcon.biSystemMenu];
+  FIsClose := False;
+  PopupMenu.AutoHotkeys := maManual;
+  TrayIcon.Icon := Application.Icon;
+  TrayIcon.Visible := True;
+  TrayIcon.PopupMenu := PopupMenu;
+  TrayIcon.OnClick := MenuItemShowFormClick;
   // フックを登録（グローバルにキーボードを監視）
   if hHook = 0 then
     hHook := SetWindowsHookEx(WH_KEYBOARD_LL, @KeyHookProc, HInstance, 0);
@@ -78,9 +96,18 @@ begin
     FApplicationManager.LoadFromFile('Delphi.txt');
     FApplicationManager.LoadFromFile('VSCode.txt');
     FApplicationManager.LoadFromFile('OneNote.txt');
+    FApplicationManager.LoadFromFile('Global.txt');
   end
   else begin
     RaiseLastOSError;
+  end;
+end;
+
+procedure TFormMain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+begin
+  if not Self.FIsClose then begin
+    CanClose := False;
+    Hide;
   end;
 end;
 
@@ -131,6 +158,42 @@ begin
   if (GetAsyncKeyState(VK_CONTROL) and $8000) <> 0 then Include(Result, tmsCtrlKey);
   if (GetAsyncKeyState(VK_MENU) and $8000) <> 0 then Include(Result, tmsAltKey);
   if (GetAsyncKeyState(VK_LWIN) and $8000) <> 0 then Include(Result, tmsWinKey);
+end;
+
+procedure TFormMain.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Application.ShowMainForm := False;
+end;
+
+procedure TFormMain.ProcTrayIconMessage(S: string);
+begin
+  TrayIcon.BalloonTitle := FormMain.Caption;
+  TrayIcon.BalloonHint := S;
+  TrayIcon.BalloonFlags := bfError;
+  TrayIcon.ShowBalloonHint;
+end;
+
+procedure TFormMain.ApplicationEventsMinimize(Sender: TObject);
+begin
+  if Self.Visible then begin
+    Self.Visible := False;
+  end;
+end;
+
+procedure TFormMain.MenuItemCloseFormClick(Sender: TObject);
+begin
+  Self.FIsClose := True;
+  Self.Visible := False;
+  Self.Close;
+end;
+
+procedure TFormMain.MenuItemShowFormClick(Sender: TObject);
+begin
+  if Self.Visible = False then begin
+    Self.WindowState := wsNormal;
+    Self.Visible := True;
+  end;
 end;
 
 end.

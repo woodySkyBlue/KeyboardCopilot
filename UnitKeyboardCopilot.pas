@@ -210,7 +210,8 @@ end;
 
 function TApplicationData.IsMatch(AInfo: TApplicationInfo): Boolean;
 begin
-  Result := SameText(Self.FAppName, AInfo.AppName) and SameText(Self.FExeName, AInfo.ExeName);
+  Result := ((Self.FAppName = '***') and (Self.FExeName = '***'))
+            or (SameText(Self.FAppName, AInfo.AppName) and SameText(Self.FExeName, AInfo.ExeName));
 end;
 
 procedure TApplicationData.ProcKeyDown(AKey: Word);
@@ -287,7 +288,7 @@ end;
 function TApplicationManager.ProcIsRegisteredApplication(AIndex: Integer; AInfo: TApplicationInfo): Boolean;
 begin
   Result := False;
-  if AIndex < Self.Count then
+  if (AIndex >= 0) and (AIndex < Self.Count) then
     Result := FApplicationList[AIndex].IsMatch(AInfo);
 end;
 
@@ -311,19 +312,21 @@ begin
   // 1行目：[対象アプリケーションクラス名],[対象アプリケーションEXE名]
   //        0           ,1              ,2                  ,3              ,4               ,5
   // 2行目：[ControlKey],[ModifierState],[OperationKeyCount],[OperationKey1],[ModifierState1],[],[]....
-  var FList := TStringList.Create;
-  try
-    FList.LoadFromFile(AFileName);
-    if FList.Count >= 2 then begin
-      var FData := TApplicationData.Create;
-      FData.AppName := Split(FList[0], 0);
-      FData.ExeName := Split(FList[0], 1);
-      for var Cnt := 1 to FList.Count-1 do
-        FData.Add(FList[Cnt]);
-      Self.FApplicationList.Add(FData);
+  if FileExists(AFileName) then begin
+    var FList := TStringList.Create;
+    try
+      FList.LoadFromFile(AFileName);
+      if FList.Count >= 2 then begin
+        var FData := TApplicationData.Create;
+        FData.AppName := Split(FList[0], 0);
+        FData.ExeName := Split(FList[0], 1);
+        for var Cnt := 1 to FList.Count-1 do
+          FData.Add(FList[Cnt]);
+        Self.FApplicationList.Add(FData);
+      end;
+    finally
+      FList.Free;
     end;
-  finally
-    FList.Free;
   end;
 end;
 
