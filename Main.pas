@@ -5,7 +5,7 @@ interface
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
-  PsAPI, UnitKeyboardCopilot, Vcl.Menus, Vcl.ExtCtrls, Vcl.AppEvnts;
+  PsAPI, UnitKeyboardCopilot, Vcl.Menus, Vcl.ExtCtrls, Vcl.AppEvnts, Vcl.Clipbrd, Vcl.StdCtrls;
 
 type
   TFormMain = class(TForm)
@@ -14,17 +14,26 @@ type
     PopupMenu: TPopupMenu;
     MenuItemShowForm: TMenuItem;
     MenuItemCloseForm: TMenuItem;
+    MemoMessage: TMemo;
+    CheckBoxShowMessage: TCheckBox;
+    ButtonCopy: TButton;
+    ButtonClearMessage: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure ApplicationEventsMinimize(Sender: TObject);
     procedure MenuItemShowFormClick(Sender: TObject);
     procedure MenuItemCloseFormClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure ButtonCopyClick(Sender: TObject);
+    procedure ButtonClearMessageClick(Sender: TObject);
   private
     FApplicationManager: TApplicationManager;
     FIsClose: Boolean;
     function GetForgroundApplication: TApplicationInfo;
     function GetGetModifierSet: TModifierSet;
+    function ModifierSetToString(const M: TModifierSet): string;
+    procedure ProcMemoMessage(const S: string);
+    procedure WMOnMessage(Sender: TObject; S: string);
   public
     procedure ProcTrayIconMessage(S: string);
     procedure CreateParams(var Params: TCreateParams); override;
@@ -70,8 +79,10 @@ begin
     // キーを押したとき
     // アクティブなアプリケーションの情報を取得
     var FAppInfo := FormMain.GetForgroundApplication;
+    //FormMain.ProcMemoMessage(Format('%s %s', [FAppInfo.AppName, FAppInfo.ExeName]));
     // 拡張キーコード情報を取得
     var FModifierSet := FormMain.GetGetModifierSet;
+    //FormMain.ProcMemoMessage(Format('code=%d key=%s', [p^.vkCode, FormMain.ModifierSetToString(FModifierSet)]));
     if FormMain.FApplicationManager.KeyConvert(FAppInfo, p^.vkCode, FModifierSet) then
       Result := 1;
   end;
@@ -92,6 +103,7 @@ begin
     hHook := SetWindowsHookEx(WH_KEYBOARD_LL, @KeyHookProc, HInstance, 0);
   if hHook > 0 then begin
     FApplicationManager := TApplicationManager.Create;
+    FApplicationManager.OnMessage := WMOnMessage;
     FApplicationManager.LoadFromFile('NotePad.txt');
     FApplicationManager.LoadFromFile('Delphi.txt');
     FApplicationManager.LoadFromFile('VSCode.txt');
@@ -160,6 +172,27 @@ begin
   if (GetAsyncKeyState(VK_LWIN) and $8000) <> 0 then Include(Result, tmsWinKey);
 end;
 
+procedure TFormMain.ProcMemoMessage(const S: string);
+begin
+  if CheckBoxShowMessage.Checked then
+    MemoMessage.Lines.Add(Format('%s %s', [FormatDateTime('hh:nn:ss.zzz', Now), S]));
+end;
+
+procedure TFormMain.WMOnMessage(Sender: TObject; S: string);
+begin
+  ProcMemoMessage(S);
+end;
+
+procedure TFormMain.ButtonClearMessageClick(Sender: TObject);
+begin
+  MemoMessage.Clear;
+end;
+
+procedure TFormMain.ButtonCopyClick(Sender: TObject);
+begin
+  Clipboard.AsText := MemoMessage.Text;
+end;
+
 procedure TFormMain.CreateParams(var Params: TCreateParams);
 begin
   inherited;
@@ -194,6 +227,17 @@ begin
     Self.WindowState := wsNormal;
     Self.Visible := True;
   end;
+end;
+
+function TFormMain.ModifierSetToString(const M: TModifierSet): string;
+begin
+  var SData := '';
+  if tmsShiftKey in M then SData := SData + 'Shift,';
+  if tmsCtrlKey in M then SData := SData + 'Ctrl,';
+  if tmsAltKey in M then SData := SData + 'Alt,';
+  if tmsWinKey in M then SData := SData + 'Win,';
+  if SData <> '' then SetLength(SData, Length(SData) - 1); // 末尾のカンマを削除
+  Result := '[' + SData + ']';
 end;
 
 end.

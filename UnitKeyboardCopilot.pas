@@ -11,6 +11,8 @@ type
   TModifierState = (tmsShiftKey, tmsCtrlKey, tmsAltKey, tmsWinKey);
   TModifierSet = set of TModifierState;
 
+  TKeyMessageEvent = procedure(Sender: TObject; S: String) of Object;
+
   TKeyData = record
     ModifierSet: TModifierSet;
     KeyCode: Word;
@@ -45,12 +47,16 @@ type
     FExeName: string;
     FKeyManager: TKeyManager;
     FKeyControlList: TObjectList<TKeyControlData>;
+    FOnMessage: TKeyMessageEvent;
     function ProcStrToModifierState(S: string): TModifierSet;
     function ProcIsRegisteredHotKey(AIndex: Integer; ACode: DWORD; ASet: TModifierSet): Boolean;
+    function ProcModifierKeyToStr(const ASet: TModifierSet): string;
     procedure ProcKeyUp(AKey: Word);
     procedure ProcKeyDown(AKey: Word);
     procedure ProcModifierKeyUp(ASet: TModifierSet);
     procedure ProcModifierKeyDown(ASet: TModifierSet);
+  protected
+    procedure DoMessage(S: string); virtual;
   public
     constructor Create;
     destructor Destroy; override;
@@ -60,18 +66,24 @@ type
     procedure Add(ACommaText: string);
     property AppName: string read FAppName write FAppName;
     property ExeName: string read FExeName write FExeName;
+    property OnMessage: TKeyMessageEvent read FOnMessage write FOnMessage;
   end;
 
   TApplicationManager = class
   private
     FApplicationList: TObjectList<TApplicationData>;
+    FOnMessage: TKeyMessageEvent;
     function ProcIsRegisteredApplication(AIndex: Integer; AInfo: TApplicationInfo): Boolean;
+    procedure WMOnMessage(Sender: TObject; S: string);
+  protected
+    procedure DoMessage(S: string); virtual;
   public
     constructor Create;
     destructor Destroy; override;
     function Count: Integer;
     function KeyConvert(AInfo: TApplicationInfo; ACode: DWORD; ASet: TModifierSet): Boolean;
     procedure LoadFromFile(const AFileName: string);
+    property OnMessage: TKeyMessageEvent read FOnMessage write FOnMessage;
   end;
 
 function ModifierSetToByte(ASet: TModifierSet): Byte;
@@ -162,6 +174,11 @@ begin
   inherited;
 end;
 
+procedure TApplicationData.DoMessage(S: string);
+begin
+  if Assigned(FOnMessage) then FOnMessage(Self, S);
+end;
+
 function TApplicationData.ProcIsRegisteredHotKey(AIndex: Integer; ACode: DWORD; ASet: TModifierSet): Boolean;
 begin
   // アプリケーションごとに登録されているHotKeyが一致しているか（True=一致）
@@ -216,18 +233,23 @@ end;
 
 procedure TApplicationData.ProcKeyDown(AKey: Word);
 begin
-  if AKey > 0 then
+  if AKey > 0 then begin
+    DoMessage(Format('KeyDown[%d]', [AKey]));
     Self.FKeyManager.Add(AKey, 0);
+  end;
 end;
 
 procedure TApplicationData.ProcKeyUp(AKey: Word);
 begin
-  if AKey > 0 then
+  if AKey > 0 then begin
+    DoMessage(Format('KeyUp[%d]', [AKey]));
     Self.FKeyManager.Add(AKey, KEYEVENTF_KEYUP);
+  end;
 end;
 
 procedure TApplicationData.ProcModifierKeyUp(ASet: TModifierSet);
 begin
+  DoMessage(Format('ModifierKeyUp[%s]', [ProcModifierKeyToStr(ASet)]));
   if tmsShiftKey in ASet then Self.FKeyManager.Add(VK_SHIFT, KEYEVENTF_KEYUP);
   if tmsCtrlKey in ASet then Self.FKeyManager.Add(VK_CONTROL, KEYEVENTF_KEYUP);
   if tmsAltKey in ASet then Self.FKeyManager.Add(VK_MENU, KEYEVENTF_KEYUP);
@@ -236,10 +258,22 @@ end;
 
 procedure TApplicationData.ProcModifierKeyDown(ASet: TModifierSet);
 begin
+  DoMessage(Format('ModifierKeyDown[%s]', [ProcModifierKeyToStr(ASet)]));
   if tmsShiftKey in ASet then Self.FKeyManager.Add(VK_SHIFT, 0);
   if tmsCtrlKey in ASet then Self.FKeyManager.Add(VK_CONTROL, 0);
   if tmsAltKey in ASet then Self.FKeyManager.Add(VK_MENU, 0);
   if tmsWinKey in ASet then Self.FKeyManager.Add(VK_LWIN, 0);
+end;
+
+function TApplicationData.ProcModifierKeyToStr(const ASet: TModifierSet): string;
+begin
+  var SData := '';
+  if tmsShiftKey in ASet then SData := SData + 'Shift,';
+  if tmsCtrlKey in ASet then SData := SData + 'Ctrl,';
+  if tmsAltKey in ASet then SData := SData + 'Alt,';
+  if tmsWinKey in ASet then SData := SData + 'Win,';
+  if SData <> '' then SetLength(SData, Length(SData) - 1); // 末尾のカンマを削除
+  Result := '[' + SData + ']';
 end;
 
 function TApplicationData.KeyConvert(ACode: DWORD; ASet: TModifierSet): Boolean;
@@ -285,6 +319,16 @@ begin
   inherited;
 end;
 
+procedure TApplicationManager.DoMessage(S: string);
+begin
+  if Assigned(FOnMessage) then FOnMessage(Self, S);
+end;
+
+procedure TApplicationManager.WMOnMessage(Sender: TObject; S: string);
+begin
+  DoMessage(S);
+end;
+
 function TApplicationManager.ProcIsRegisteredApplication(AIndex: Integer; AInfo: TApplicationInfo): Boolean;
 begin
   Result := False;
@@ -318,6 +362,7 @@ begin
       FList.LoadFromFile(AFileName);
       if FList.Count >= 2 then begin
         var FData := TApplicationData.Create;
+        FData.OnMessage := WMOnMessage;
         FData.AppName := Split(FList[0], 0);
         FData.ExeName := Split(FList[0], 1);
         for var Cnt := 1 to FList.Count-1 do
